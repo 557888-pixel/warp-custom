@@ -26,6 +26,10 @@ pub struct ApiKeys {
     pub ssy_cloud: Option<String>,
     /// 自定义 OpenAI 兼容 API 端点（留空则使用胜算云默认端点）
     pub custom_endpoint: Option<String>,
+    /// DeepSeek API Key（OpenAI 兼容接口）
+    pub deepseek: Option<String>,
+    /// xAI Grok API Key（OpenAI 兼容接口）
+    pub xai_grok: Option<String>,
 }
 
 impl ApiKeys {
@@ -35,7 +39,12 @@ impl ApiKeys {
             || self.google.is_some()
             || self.open_router.is_some()
             || self.ssy_cloud.is_some()
+            || self.deepseek.is_some()
+            || self.xai_grok.is_some()
     }
+
+    pub const DEEPSEEK_ENDPOINT: &'static str = "https://api.deepseek.com/v1";
+    pub const XAI_GROK_ENDPOINT: &'static str = "https://api.x.ai/v1";
 
     /// 返回实际使用的 API key（优先胜算云，其次自定义，最后 OpenAI）
     pub fn effective_openai_key(&self) -> Option<&str> {
@@ -122,6 +131,18 @@ impl ApiKeyManager {
 
     pub fn set_custom_endpoint(&mut self, endpoint: Option<String>, ctx: &mut ModelContext<Self>) {
         self.keys.custom_endpoint = endpoint;
+        ctx.emit(ApiKeyManagerEvent::KeysUpdated);
+        self.write_keys_to_secure_storage(ctx);
+    }
+
+    pub fn set_deepseek_key(&mut self, key: Option<String>, ctx: &mut ModelContext<Self>) {
+        self.keys.deepseek = key;
+        ctx.emit(ApiKeyManagerEvent::KeysUpdated);
+        self.write_keys_to_secure_storage(ctx);
+    }
+
+    pub fn set_xai_grok_key(&mut self, key: Option<String>, ctx: &mut ModelContext<Self>) {
+        self.keys.xai_grok = key;
         ctx.emit(ApiKeyManagerEvent::KeysUpdated);
         self.write_keys_to_secure_storage(ctx);
     }
