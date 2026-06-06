@@ -1,0 +1,96 @@
+name: Build Windows (Custom)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v0.3.1)'
+        required: true
+        default: 'v0.3.1'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.92.0
+        run: |
+          rustup toolchain install 1.92.0
+          rustup default 1.92.0
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Install protoc
+        run: choco install protoc --yes
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x64-custom
+
+      - name: Install cargo-about
+        run: cargo install --locked cargo-about@0.8.4
+
+      - name: Build warp-cn binary
+        shell: pwsh
+        env:
+          GIT_RELEASE_TAG: ${{ inputs.release_tag }}
+          CARGO_FULL_PROFILE: rlto
+        run: |
+          $FEATURES = "release_bundle,skip_login,skip_firebase_anonymous_user,gui,nld_improvements"
+          cargo build -p warp --profile rlto --bin warp-cn --features $FEATURES --target x86_64-pc-windows-msvc
+
+      - name: Prepare bundled resources
+        shell: pwsh
+        env:
+          GIT_RELEASE_TAG: ${{ inputs.release_tag }}
+          CARGO_FULL_PROFILE: rlto
+        run: |
+          $TARGET_DIR = "target\x86_64-pc-windows-msvc\rlto"
+          $RESOURCES_DIR = "$TARGET_DIR\resources"
+          & ".\script\windows\prepare_bundled_resources.ps1" -DestinationDir "$RESOURCES_DIR" -Channel "oss" -CargoProfile "rlto"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $TARGET_DIR = "$(Get-Location)\target\x86_64-pc-windows-msvc\rlto"
+          $INSTALLER_DIR = "script\windows"
+          $OUTPUT_DIR = "$INSTALLER_DIR\Output"
+          if (-Not (Test-Path $OUTPUT_DIR)) { New-Item -ItemType Directory -Path $OUTPUT_DIR -Force }
+          $ISCC_ARGS = @(
+            "$INSTALLER_DIR\windows-installer.iss",
+            "/DReleaseChannel=oss",
+            "/DMyAppExeName=warp-cn.exe",
+            "/DTargetProfileDir=$TARGET_DIR",
+            "/DMyAppName=Warp-Custom",
+            "/DMyAppVersion=${{ inputs.release_tag }}",
+            "/DArch=x64",
+            "/DOutputName=warp-custom-windows"
+          )
+          & ISCC @ISCC_ARGS
+
+      - name: Create GitHub Release and upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: "Warp Custom ${{ inputs.release_tag }}"
+          draft: false
+          files: script\windows\Output\warp-custom-windows.exe
